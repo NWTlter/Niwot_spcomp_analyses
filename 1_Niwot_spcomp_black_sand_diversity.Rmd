@@ -1,0 +1,484 @@
+---
+title: "Comparing species composition survey methods. Part 1: Diversity metrics"
+author: "Kelly Carscadden"
+date: '2019-11-26'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Purpose and Approach
+
+- Compare vegetation survey methods (all hits vs. top hits only) to determine what, if anything, we lose from the faster top hits approach.
+
+- Using the Black Sand dataset (Niwot Ridge LTER) as an example, I compare the two survey methods by contrasting their resulting:
+    - diversity estimates (richness, evenness)
+    - species lists and abundance curves
+    - community composition (ordination)
+
+I also explore whether the survey method chosen impacts our understanding of the study's treatment (black sand) and site effects on diversity and composition.
+  
+  
+# Main Findings
+
+Several lines of evidence suggest that all hits and top hits survey methods yield different characterizations of community diversity and which species are the major drivers of differences in community composition among sites and treatments. However, among-site (and to a lesser extent, among-treatment) variation in community composition appears much greater than variation in community composition explained by survey method.
+
+A 'top and bottom hit' approach captures subplot species richness and rare species (i.e., yields the same overall species list), because most survey points only had 1-2 hits recorded.
+
+Results in brief:
+
+- Survey method (all hits vs top hits) seems to impact diversity estimates in a meaningful way
+    - Differences in species richness among survey methods exceeded differences among sites and treatments
+    - Unlike the top hits approach, the all hits approach suggests that sites are responding differently (in terms of species richness) to the black sand treatment
+    - Species evenness is also slightly greater with the all hits method
+    
+
+- Generally, the species abundance curves are similar between survey methods. However, compared to all hits, the top hits method misses some rarer species completely and results in different proportions missed per species. Hence, it's not as simple as 'top hits misses x% of occurrences across the board'.
+
+- When performing one ordination per survey method, different species (depending on the survey method) are identified as important drivers of compositional differences among sites.
+
+- When both survey methods were included within the same ordination, community composition varies most among sites and then among treatments. Survey method seems less important as a driver of community compositional differences.
+
+
+Therefore, the scientific consequence of choosing one survey approach over another is likely to depend, in part, on:
+
+- The importance we place on including rare species in our analyses, and 
+- The magnitude of the effect we seek to measure (e.g., compositional variation among sites dwarfs variation among survey methods here)
+
+# Methods
+## Black Sand Metadata
+Adapted from L. Brigham pers comm
+
+- The Black Sand plots are 1m by 0.5m. There are 10 large plots and 8 subplots nested within each large plot.
+
+- Vegetation survey data was recorded at each point in the 1 x 0.5m grid, and the canopy structure was noted by distinguishing species hits from the top (hit_1) to bottom of the canopy at a given point.
+
+- The P under points stands for 'present'. These species are typically assigned a relative abundance of 0.05%. They haven't been hit, but after all hits are completed, we survey the plots for any species that are present but not touched. (This means the total doesn't add to 100%, but it's useful for presence-absence.)
+
+## Data Preparation
+Here, I'm using 2018 Black Sand data cleaned using my Niwot_black_sand_cleaning.Rmd script that:
+
+- Removed "P" species, to just consider actual hits
+- Tidied subplot & species names
+
+
+Looking at a peek of the cleaned data:
+```{r, include=F}
+library(tidyverse)
+library(vegan)
+library(sm)
+library(nlme)
+
+splong <- read_csv("splong_NWT_bs.csv")[-1]
+```
+
+```{r, echo=F}
+head(splong)
+```
+
+## Data Analysis
+Plan: evaluate plant diversity and composition resulting from all hit vs. top hit survey methods
+
+1. Comparing diversity estimates
+2. Comparing community compositions
+
+### 1. Diversity estimates
+
+```{r, echo=F}
+# leaving each subplot as its own row (i.e., not aggregated)
+
+# desired format of community composition matrix: sites = rows; sp = cols
+
+# tally frequencies of sp within subplots, for just hit_1 and for all
+
+## isolate just top hit sp
+h1 <- splong %>% filter(hits == "hit_1")
+
+## tally sp frequencies and create community df
+h1comm <- h1 %>% group_by(subplot) %>%
+  count(sp) %>%
+  ungroup() %>%
+  #spread into columns=sp
+  pivot_wider(names_from= sp, values_from = n) 
+
+## convert from tibble -> df, so can turn col 1 (subplot) into rownames
+h1comm <- as.data.frame(h1comm)
+rownames(h1comm) <- h1comm[,1] #make site labels into rownames
+h1comm <- h1comm %>% select(-subplot) #remove subplot column
+
+## replace NA with 0 for sp comp data
+h1comm[is.na(h1comm)] <- 0
+
+# repeat for full dataset (all hits)
+fullcomm <- splong %>% group_by(subplot) %>%
+  count(sp) %>%
+  ungroup() %>%
+  pivot_wider(names_from = sp, values_from = n) 
+
+fullcomm <- as.data.frame(fullcomm)
+rownames(fullcomm) <- fullcomm[,1] 
+fullcomm <- fullcomm %>% select(-subplot) 
+
+fullcomm[is.na(fullcomm)] <- 0
+
+# peek
+# head(fullcomm)
+```
+
+#### Species Richness
+
+```{r, echo=F}
+h1rich <- specnumber(h1comm)
+fullrich <- specnumber(fullcomm)
+
+# split subplot into plot & reps, for plotting
+h1rich <- data.frame(subplot = names(h1rich), SR = unname(h1rich), method = "Top hits")
+
+fullrich <- data.frame(subplot = names(fullrich), SR = unname(fullrich), method="All hits")
+
+sr <- rbind(h1rich, fullrich)
+```
+
+Compare overall species richness (SR) across vegetation survey methods
+
+- Ignoring plot and sub-plot structure, is there an overall difference between survey methods?
+
+```{r, echo=F}
+sr %>% ggplot(aes(x=method, y=SR))+
+  geom_boxplot()+
+  theme_classic()+
+  labs(x= "Veg survey method", y="Species Richness")
+
+(sr_t <- t.test(sr$SR ~ sr$method))
+mean_top <- round(sr_t$estimate[1], 1)
+mean_all <- round(sr_t$estimate[2], 1)
+sr_p <- round(sr_t$p.value, 6)
+
+```
+
+Yes, mean SR from all hits (`r mean_all`) is significantly greater than mean SR from top hits (`r mean_top`), ignoring plot structure (p = `r sr_p`). But, the difference in means is small (`r round(mean_all - mean_top, 1)`).
+
+How relevant is this small difference - How does this difference in means compare to that seen across treatment conditions or sites?
+
+SR differences among treatments (pooled sites), using all hits method:
+
+```{r, echo=F}
+# split subplot into plot & reps
+sr <- sr %>%
+  separate(subplot, into = c("plot", "rep"), sep=" (?=[^ ]+$)")
+
+#split plot into site & treatment
+site <- substr(sr$plot, 1,1)
+treat <- substr(sr$plot, 2,3)
+
+sr <- data.frame(site, treat, sr)
+
+# visualizing SR differences among treatments (pooled sites)
+# using all hits
+sr_all <- sr %>% filter (method == "All hits")
+sr_all %>% ggplot(aes(x=treat, y=SR))+
+  geom_boxplot()+
+  theme_classic()+
+  labs(x= "Treatment", y="Species Richness")
+```
+
+SR differences among sites (pooled treatments), using all hits method:
+
+```{r, echo=F}
+sr_all %>% ggplot(aes(x=site, y=SR))+
+  geom_boxplot()+
+  theme_classic()+
+  labs(x= "Site", y="Species Richness")
+```
+
+```{r}
+a0 <- aov(SR ~ site*treat, data=sr_all)
+summary(a0)
+contrasts <- TukeyHSD(a0)
+summary(contrasts$site[,1])
+```
+
+The difference in mean SR among vegetation survey methods (~2 sp) is greater than the mean SR difference among sites.
+ 
+```{r}
+contrasts$treat[,1]
+```
+
+The difference in mean SR among vegetation survey methods is also greater than the difference among treatments.
+
+```{r}
+# the range of differences in SR within each site, between treatments
+contrasts$`site:treat`[c(5,14,22,29,35), 1]
+```
+
+For three of five sites, the SR difference between treatments is less than the difference seen between vegetation survey methods.
+
+Taken together, these comparisons suggest that the difference in mean SR between vegetation survey methods is biologically meaningful (that is, on par with, and often exceeding, variation among sites and between treatments).
+
+Does the contrast between treatments (control / black sand) vary depending on the vegetation survey method?
+
+```{r, echo=F}
+sr %>% ggplot(aes(x=site, y=SR, col=treat))+
+  facet_wrap(.~method)+
+  geom_boxplot()+
+  theme_classic()+
+  labs(x="Site", y="Species Richness")+
+  scale_colour_manual(values=c("black", "gray65"), labels=c("Black sand", "Control"), name="Treatment")
+```
+
+First, basic 2-way ANOVA within each method to see if the results vary:
+```{r, echo=F}
+topsr <- sr %>% filter(method == "Top hits") 
+fullsr <- sr %>% filter(method=="All hits")
+```
+
+```{r}
+# top hits only
+a1 <- aov(SR ~ site*treat, data=topsr)
+summary(a1)
+
+# all hits
+a2 <- aov(SR ~ site*treat, data=fullsr)
+summary(a2)
+```
+
+Using top hits, SR only varies significantly across site. Using all hits, SR varies significantly across sites, and the site*treatment interaction is significant (i.e., sites have different responses of SR to treatment).
+
+Incorporating survey method within a single analysis:
+
+```{r}
+lm1<-lme(SR ~ site*treat, random = ~ method | site, data = sr) #converges w REML, not ML
+
+lm2<- lme(SR ~ site*treat, random = ~ 1 | site, data = sr)
+anova(lm2,lm1)
+```
+
+A likelihood ratio test selects model 1 (includes a random slope by method). That is, site SR varies with vegetation survey method, supporting the earlier conclusion. Model assumptions were met (not shown in .html version, but present in .Rmd code provided).
+
+```{r, include=F}
+modDiagnost <- function(yobs, mod, main1){
+  #calculate estimated y and compare to observed y, to check model fit
+  resid <- residuals(mod)
+  yest <- yobs - resid
+  plot(yobs, yest, main = main1)
+  abline(a=0, b=1)
+  
+  #plot the residuals
+  hist(resid, probability=T, main= "2. Probability distribution of residuals")
+  sm.density(resid,add=T)
+  
+  #QQplot to assess normality of residuals
+  qqnorm(resid, main="3. QQplot of residuals")
+  qqline(resid)
+  
+  #check if residuals are autocorrelated (and violate the assumption they're iid)
+  acf(resid, main="4. Autocorrelation of residuals")
+  
+  #compare the residuals to estimated y, to check homoscedasticity
+  plot(yest, resid, xlab="Estimated y", ylab="Residuals", main="5. Checking homoscedasticity")  
+  abline(h=0, lty=2)
+  
+  #store yest and residuals for later plotting
+  return(data.frame(yest=yest, resid=resid))
+}#end of function
+
+par(mfrow=c(2,3))
+out <- modDiagnost(yobs= sr$SR, mod= lm1, 
+                   main1 = "1. Comparing estimated to \nobserved SR")
+```
+
+Can top & bottom hits approximate the SR estimates from an all hits approach?
+
+```{r, echo=F, warning=F}
+#split hits into label & numeric value, so can calc max
+temp <- splong %>% 
+  separate(hits, into = c("discard", "hit_num"), sep="_") %>%
+  separate(subplot, into = c("plot", "rep"), sep=" ", remove=F) %>%
+  select(-discard) %>%
+  mutate(hit_num = as.numeric(hit_num),
+         rep = as.numeric(rep),
+         point = as.numeric(point))
+
+#for each plot, rep, point -> find max and min (or take h1 df) hit and store sp
+
+topbot <- NULL
+
+for(i in unique(temp$plot)){
+  dat <- temp %>% filter(plot == i)
+  
+  for(j in unique(dat$rep)){
+    subdat <- dat %>% filter(rep == j)
+    
+    for(k in unique(subdat$point)){
+      subsub <- subdat %>% filter(point == k)
+      
+      #determine if there's only a top hit, or more
+      max_h <- max(subsub$hit_num)
+      min_h <- min(subsub$hit_num)
+      
+      #store top hit sp
+      res <- vector(mode = "integer", length = 2)#0s at first
+      res[1] <- unlist(subsub %>% filter(hit_num == min_h) %>%
+        select(sp))
+      
+      #if there are more hits, find the bottom sp
+      ifelse(max_h > min_h, 
+             res[2] <- unlist(subsub %>% 
+               filter(hit_num == max_h) %>%
+               select(sp)),
+             res[2] <- NA)
+      
+      #store output
+      df <- data.frame(plot = i, rep = j, point = k,
+                       max_hits = max_h,
+                 hit = c("topsp", "bottomsp"),
+                 sp = res)
+      topbot <- rbind(topbot, df)
+    }
+  }
+}
+```
+
+```{r, echo=F}
+## tally sp frequencies and create community df
+#by subplot
+tbcomm <- topbot %>% group_by(plot, rep) %>%
+  drop_na() %>%
+  count(sp) %>%
+  ungroup() %>%
+  #spread into columns=sp
+  pivot_wider(names_from= sp, values_from = n) 
+
+tbcomm <- tbcomm %>% select(-plot,-rep) #remove label columns
+
+## replace NA with 0 for sp comp data
+tbcomm[is.na(tbcomm)] <- 0
+
+# calc SR
+tbrich <- specnumber(tbcomm)
+tbrich <- data.frame(SR = tbrich, method = "Top and bottom")
+
+# tbrich %>% ggplot(aes(x=method, y=SR))+
+#   geom_boxplot()+
+#   theme_classic()+
+#   labs(x= "Veg survey method", y="Species Richness")
+```
+
+Summary of subplot SR using top and bottom survey method:
+```{r, echo=F}
+summary(tbrich$SR)
+```
+
+Directly comparing all 3 survey approaches:
+
+```{r, echo=F}
+sr <- sr %>% select(SR, method) #remove extra label columns
+sr_combo <- rbind(sr, tbrich)
+sr_combo %>% ggplot(aes(x=method, y=SR))+
+  geom_boxplot()+
+  theme_classic()+
+  labs(x= "Veg survey method", y="Species Richness")
+```
+
+```{r}
+# ANOVA to compare richness estimates among survey methods
+mod_comp <- aov(SR ~ method, data=sr_combo)
+summary(mod_comp)
+TukeyHSD(mod_comp)
+```
+
+Top & bottom and all hits are not significantly different. Both have significantly greater SR than the top hits only approach.
+
+How many total species are hit in the top & bottom approach?
+```{r, echo=F}
+topbot_spp <- topbot %>% 
+  summarize(n_distinct(sp))
+```
+
+`r topbot_spp` sp captured (>= 1 obs) in top & bottom hits
+(Same total species list as all hits)
+
+How many survey grid points had > 1 hit? (i.e., is this approach likely to be much of a time-saver, or did most grid points have one hit?)
+```{r, echo=F}
+#find the max hits for each plot/rep/point - lumped into topbot calc above
+topbot %>% group_by(plot, rep, point) %>%
+  summarize(num_hits = max(max_hits)) %>% #thinning, to get just the one value, since df doubled it
+ggplot(aes(x=num_hits))+
+  geom_bar(stat="count")+
+  theme_classic()+
+  labs(x="Number of hits per point", y="Frequency")
+
+#unique(splong$hits) #yes, the most hits ever seen for a single point was 5
+```
+
+Most survey points had only one plant hit (with two hits being the second most common pattern, explaining why top & bottom surveying closely approximates the species richness seen with an all hits approach; however, this means it wouldn't save all that much time to go to a top & bottom approach, over all hits, likely). The maximum number of plant hits for a single survey point was 5.
+
+#### Species Evenness
+
+```{r, echo=F}
+# vegan package, shannon weaver
+Htop <- diversity(h1comm)
+Hfull <- diversity(fullcomm)
+
+# again have to split these df to display
+h1eve <- data.frame(subplot = names(Htop), SEve = unname(Htop), method = "Top hits")
+
+fulleve <- data.frame(subplot = names(Hfull), SEve = unname(Hfull), method="All hits")
+
+eve <- rbind(h1eve, fulleve)
+
+# split subplot into plot & reps
+eve <- eve %>%
+  separate(subplot, into = c("plot", "rep"), sep=" (?=[^ ]+$)")
+
+site <- substr(eve$plot, 1,1)
+treat <- substr(eve$plot, 2,3)
+
+eve <- data.frame(site, treat, eve)
+```
+
+Compare evenness across vegetation survey methods
+```{r, echo=F}
+eve %>% ggplot(aes(x=method, y=SEve))+
+  geom_boxplot()+
+  theme_classic()+
+  labs(x= "Veg survey method", y="Species Evenness")
+
+(eve_t <- t.test(eve$SEve ~ eve$method))
+mean_e_top <- round(eve_t$estimate[1], 1)
+mean_e_all <- round(eve_t$estimate[2], 1)
+eve_p <- round(eve_t$p.value, 6)
+```
+
+Mean species evenness is significantly greater when including all hits (`r mean_e_all`) vs. top hits only (`r mean_e_top`, p = `r eve_p`). However, the difference is slight.
+
+
+Visualize evenness across site, treatment, in addition to method
+```{r, echo=F}
+eve %>% ggplot(aes(x=site, y=SEve, col=treat))+
+  facet_wrap(.~method)+
+  geom_boxplot()+
+  theme_classic()+
+  labs(x="Site", y="Species Evenness")+
+  scale_colour_manual(values=c("black", "gray65"), labels=c("Black sand", "Control"), name="Treatment")
+```
+
+Fit model including method
+```{r}
+lm3<-lme(SEve ~ site*treat, random = ~ method | site, data = eve) #converges w REML, not ML #method="ML"
+
+lm4<- lme(SEve ~ site*treat, random = ~ 1 | site, data = eve)
+anova(lm4,lm3)
+```
+
+A likelihood ratio test selects model 3 (includes a random slope by method). That is, site evenness varies with vegetation survey method. Again, model assumptions were met.
+
+```{r, include=F}
+# model diagnostics
+par(mfrow=c(2,3))
+out <- modDiagnost(yobs= eve$SEve, mod= lm3, 
+                   main1 = "1. Comparing estimated to \nobserved SEve")
+
+```

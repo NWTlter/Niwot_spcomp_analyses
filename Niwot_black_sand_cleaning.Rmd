@@ -1,0 +1,145 @@
+---
+title: "Cleaning NWT Black Sand data"
+author: "Kelly Carscadden"
+date: '2019-12-10'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Black Sand data munging 
+- fixing subplot names
+- fixing sp names
+- converting to long data format
+
+2018 Black Sand data downloaded from Laurel Brigham email, Nov 25, 2019
+
+```{r}
+library(tidyverse)
+
+# load data
+spbs <- read_csv("Subplots_QAQC.csv")
+
+# peek at data
+str(spbs)
+head(spbs)
+```
+
+### 1. Standardizing subplot naming
+(eg., A CO -> ACO, Audubon Control -> ACO)
+```{r}
+# look at unique subplot labels
+unique(spbs$subplot)
+
+# format: replace(subplot, existing_name, replacement)
+spbs <- spbs %>% 
+  mutate(subplot = str_replace(subplot, "A CO", "ACO"),
+        subplot = str_replace(subplot, "Audubon BS", "ABS"),
+        subplot = str_replace(subplot, 
+                              "Audubon Control", "ACO"),
+        subplot = str_replace(subplot, 
+                              "East Knoll Control", "ECO"),
+        subplot = str_replace(subplot, "Soddie BS", "SBS"),
+        subplot = str_replace(subplot, 
+                              "Soddie Control", "SCO"),
+        subplot = str_replace(subplot, "T CO", "TCO")
+) #end mutate
+
+unique(spbs$subplot) #good
+```
+
+### 2. Standardizing species naming
+
+- Remove sp that weren't hit (listed as P under points)
+```{r}
+# creating black sand species list
+spbs %>% 
+  #remove sp that weren't hit (but are in plot)
+  filter(point != "P") %>%
+  #remove extraneous columns
+  select(subplot:hit_8) %>%
+  #melt so have hits as 1 col, sp as another
+  pivot_longer(-c(subplot,point), names_to = "hits", 
+               values_to = "sp") %>%
+  distinct(sp) %>%
+  #alphebetize so easier to see any other inconsistencies
+  arrange(sp) %>%
+  print(n=1000) #print all rows
+```
+
+- Remove any IDs that aren't vascular plants (e.g., rock, scat)
+
+- Fix inconsistencies in sp names, with reference to NWT species codes (pspecies.mw.data_JGS.csv):
+    - Uncertain what LI is, removed since not consistent with sp names
+    - Some sp IDs uncertain...Removed "?" and "*" and " U" at name end to synonymize with confident IDs of the same sp
+
+```{r}
+# filtering sp IDs
+
+# list the terms to remove
+elim <- c("MOSS", "Moss", "LITTER", "SCAT", "Scat", 
+          "Elk scat", "ROCK", "BARE", "LI", "LICHEN")
+
+splong <- spbs %>% filter(point != "P") %>%
+  select(subplot:hit_8) %>%
+  pivot_longer(-c(subplot,point), names_to = "hits", 
+               values_to = "sp") %>%
+  #drop names to eliminate
+  filter(! sp %in% elim) %>%
+  #drop NA
+  drop_na() %>%
+  #remove ?, *, and U terms at end of some sp names
+  #fix sp IDs
+  mutate(sp = str_remove(sp, pattern="[?*]"),
+         sp = str_remove(sp, pattern=" U"),
+         sp = str_replace(sp, "CAR sp.", "CARSPP"),
+         sp = str_replace(sp, "CAR sp.", "CARSPP"),
+         sp = str_replace(sp, "CAR sp. 1", "CARSPP1"),
+         sp = str_replace(sp, "CARSPP 1", "CARSPP1"),
+         sp = str_replace(sp, "CAR sp. 2", "CARSPP2"),
+         sp = str_replace(sp, "Car sp. 2", "CARSPP2"),
+         sp = str_replace(sp, "Campanula", "CAMPSP"),
+         sp = str_replace(sp, "CAM sp.", "CAMSPP"),
+         sp = str_replace(sp, "CAMPSP", "CAMSPP"),
+         sp = str_replace(sp, "CARDES", "CARROS"),
+         sp = str_replace(sp, "CARDAS", "CARROS"),
+         sp = str_replace(sp, "CASSOC", "CASOCC"),
+         sp = str_replace(sp, "CHAM sp.", "CHASPP"),
+         sp = str_replace(sp, "CALPER", "CALPUR"),
+         sp = str_replace(sp, "COBMYO", "KOBMYO"),
+         sp = str_replace(sp, "DESCAE", "DESCES"),
+         sp = str_replace(sp, "ERIMIL", "ERIMEL"),
+         sp = str_replace(sp, "ERININ", "ERINAN"),
+         sp = str_replace(sp, "ERISUM", "ERISIM"),
+         sp = str_replace(sp, "ERISUM U", "ERISIM U"),
+         sp = str_replace(sp, "GUNDRU", "JUNDRU"),
+         sp = str_replace(sp, "LEWPIG", "LEWPYG"),
+         sp = str_replace(sp, "LL sp.", "LLOSER"),
+         sp = str_replace(sp, "LLSPP", "LLOSER"),
+         sp = str_replace(sp, "LLUSPI", "LUZSPI"),
+         sp = str_replace(sp, "MINOPT", "MINOBT"),
+         sp = str_replace(sp, "PHALP", "PHLALP"),
+         sp = str_replace(sp, "PHALP?", "PHLALP"),
+         sp = str_replace(sp, "PHLPOL", "PHLPUL"),
+         sp = str_replace(sp, "POA sp.", "POASPP"),
+         sp = str_replace(sp, "POA fat", "POAFAT"),
+         sp = str_replace(sp, "SEDLEN", "SEDLAN"),
+         sp = str_replace(sp, "SELDAN", "SELDEN"),
+         sp = str_replace(sp, "SOLMOL", "SOLMUL"),
+         sp = str_replace(sp, "VAC sp.", "VACSPP")
+         ) #end mutate
+```
+
+Check revised species list
+```{r}
+splong %>%
+  distinct(sp) %>%
+  #alphebetize
+  arrange(sp) %>%
+  print(n=1000)
+
+#write.csv(splong, "splong_NWT_bs.csv")
+```
+

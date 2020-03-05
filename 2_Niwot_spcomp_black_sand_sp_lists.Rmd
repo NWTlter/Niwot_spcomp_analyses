@@ -1,0 +1,109 @@
+---
+title: "Comparing species composition survey methods. Part 2a: Species Lists and Abundance Curves"
+author: "Kelly Carscadden"
+date: '2020-03-04'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### 2. Community composition
+
+#### Species Lists and Abundance Curves
+```{r, include=F}
+library(tidyverse)
+library(forcats)
+
+splong <- read_csv("splong_NWT_bs.csv")[-1]
+```
+
+```{r, include=F}
+#species counts for all hits
+tallyf <- splong %>% count(sp) %>% arrange(desc(n))
+head(tallyf)
+
+#species counts for top hits only
+h1 <- splong %>% filter(hits == "hit_1")
+tally1 <- h1 %>% count(sp)
+
+# note, diffs in sp number overall = sp lists not comparable
+```
+
+```{r, echo=F}
+# total species from all hits
+n_all <- length(unique(tallyf$sp))
+
+# total species from top hits only
+n_top <- length(unique(tally1$sp))
+```
+
+Total species from *all hits*: `r n_all`
+
+Total species from *top hits*: `r n_top`
+
+Which species were totally missed by the top hits survey approach?
+
+```{r, echo=F}
+# missing sp
+(miss <- tallyf$sp[which(!tallyf$sp %in% tally1$sp)])
+```
+
+How do abundance curves compare across the two survey methods (across sites, treatments)?
+```{r, echo=F}
+# add 0s for those to make sp lists comparable
+adds <- data.frame(sp=miss, n=0)
+tally1 <- rbind(tally1, adds)
+
+# order species by decreasing abundance
+tallyf <- tallyf %>% mutate(sp = as.factor(sp),
+                            sp = fct_reorder(sp, -n)) 
+
+# match order of sp to the all-hits method above
+tally1 <- tally1 %>% mutate(sp = as.factor(sp))
+tally1 <- tally1[order(match(tally1$sp, tallyf$sp)),]
+
+# stacking data for easier plotting
+tallyf$method <- "All hits"
+tally1$method <- "Top hits"
+tally_combo <- rbind(tallyf, tally1)
+
+# plot  
+tally_combo %>% ggplot(aes(x=sp, y=n, col=method))+
+geom_hline(yintercept = 0, lty=2, col="lightgrey")+
+  geom_point(alpha=0.6) +
+  theme_classic()+
+  theme(axis.text.x = element_text(angle=90, size=5))+
+  labs(x="Species", y="Total abundance")+
+  scale_color_manual(values = c("black", "cornflowerblue"), name="Survey method")
+```
+
+Across methods, abundances seem quite consistent. This plot suggests the main impact of top hits is:
+
+(a) decreasing the frequency of records of the most abundant species, and
+(b) losing a few of the rarest species
+
+
+Does a top hit approach miss a consistent proportion of each species' occurrences, or disproportionately miss certain species?
+
+Formula: (tally_all_hits - tally_top_hits) / tally_all_hits
+
+```{r, echo=F}
+# since the sp order is consistent across these df, can subtract abundances
+tallyf$loss<- tallyf$n - tally1$n
+tallyf$prop_loss <- tallyf$loss/tallyf$n
+
+# plot
+tallyf %>% ggplot(aes(x=sp, y=prop_loss))+
+  geom_hline(yintercept = 0, lty=2, col="lightgrey")+
+  geom_hline(yintercept = 1, lty=2, col="lightgrey")+
+  geom_point(alpha=0.6) +
+  theme_classic()+
+  theme(axis.text.x = element_text(angle=90, size=5))+
+  labs(x="Species", y="Proportion missed")
+```
+
+Species are displayed in order of decreasing abundance, as in the previous plot. As expected, rarer species vary in how they're impacted (e.g., since one missed observation can mean 100% loss of that species, or conversely one top hit of a taller rare sp can be all that was seen, and lower canopy surveys would not have added more observations anyways).
+
+Proportion loss varies across species (i.e., is not that you consistently lose x% of all observations across the board, by using the top hits approach). So, the effects of top hits could be challenging to account for post-hoc.

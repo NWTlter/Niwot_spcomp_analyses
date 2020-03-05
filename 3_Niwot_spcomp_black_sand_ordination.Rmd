@@ -1,0 +1,532 @@
+---
+title: "Comparing species composition survey methods. Part 2b: Community Ordination"
+author: "Kelly Carscadden"
+date: '2020-03-04'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#### Correspondence Analysis (CA)
+
+How does the vegetation survey method impact our understanding of community composition (and compositional change among sites & treatments)?
+
+- Aggregating subplots within site/treatment levels
+
+I take three ordination approaches:
+
+1. Separate ordinations per survey method
+2. Single all-inclusive ordination
+3. Site-level ordinations, since among-site variation dwarfs other sources of compositional change
+
+##### 1. Separate Ordinations by Method
+```{r, include=F}
+library(tidyverse)
+library(vegan)
+
+splong <- read_csv("splong_NWT_bs.csv")[-1]
+## isolate just top hit sp
+h1 <- splong %>% filter(hits == "hit_1")
+```
+
+
+```{r, echo=F}
+# split h1 labels to elim subplot nums
+# leave BS and CO in with site labels
+h1 <- h1 %>% separate(subplot, into = c("plot", "rep"), sep=" ", remove=F) #remove = F to retain subplot col
+
+# now group by plot instead of subplot
+h1comm_plot <- h1 %>% group_by(plot) %>%
+  count(sp) %>%
+  ungroup() %>%
+  #spread into columns=sp
+  pivot_wider(names_from= sp, values_from = n) 
+
+h1comm_plot <- as.data.frame(h1comm_plot)
+rownames(h1comm_plot) <- h1comm_plot[,1]
+h1comm_plot <- h1comm_plot %>% select(-plot)
+
+# fill in NA with 0s
+h1comm_plot[is.na(h1comm_plot)] <- 0
+
+
+## repeat with full dataset (all hits)
+splong <- splong %>% separate(subplot, into = c("plot", "rep"), sep=" (?=[^ ]+$)", remove=F)
+
+fullcomm_plot <- splong %>% group_by(plot) %>%
+  count(sp) %>%
+  ungroup() %>%
+  pivot_wider(names_from= sp, values_from = n) 
+
+fullcomm_plot <- as.data.frame(fullcomm_plot)
+rownames(fullcomm_plot) <- fullcomm_plot[,1]
+fullcomm_plot <- fullcomm_plot %>% select(-plot)
+
+fullcomm_plot[is.na(fullcomm_plot)] <- 0
+```
+
+CA on plot-level data (*top hits* only)
+
+```{r, include=F}
+# CA
+ca1_plot <- cca(h1comm_plot)
+
+# checking variance explained
+## there's a dip after 2 axes, and 1st 2 have reasonable cumulative variance explained
+par(mfrow=c(1,1))
+barplot(ca1_plot$CA$eig/ca1_plot$tot.chi, names.arg = 1:ca1_plot$CA$rank, cex.names = 0.5, ylab="Proportion of variance explained", xlab="CA axis", main="Top hits")
+
+eigprop1_plot <- ca1_plot$CA$eig/ca1_plot$CA$tot.chi
+
+# total variance explained by 1st 2 axes
+(top_2 <- round(sum(eigprop1_plot[1:2])*100,1))
+
+# save axis 1 and 2 info for plotting
+axis1_top <- round(eigprop1_plot[1]*100,1)
+axis2_top <- round(eigprop1_plot[2]*100,1)
+```
+
+```{r, echo=F}
+# plotting top hits ordination
+# select colors for site labels
+# 5 sites, black sand treatments as darker shades
+site.cols <- c("royalblue4", "royalblue1",
+               "palegreen4", "palegreen2",
+               "plum4", "plum3",
+               "goldenrod", "lightgoldenrod",
+               "firebrick4", "firebrick2")
+
+# plotting sites and sp on separate plots, for clarity
+par(mfrow=c(1,1))
+
+# plot sites
+plot(ca1_plot, display="sites", type="n", main="Sites
+     (Top hits)", scaling="sites",
+     xlab = paste0("CA axis 1 (",axis1_top,"%)"), 
+     ylab = paste0("CA axis 2 (", axis2_top,"%)"))
+text(ca1_plot, display="sites", col=site.cols, scaling="sites")
+
+
+```
+
+Sites - the major variation in species composition is among sites (black sand and control plots within sites appear very similar at this scale)
+
+```{r, echo=F}
+# plot species
+plot(ca1_plot, display="species", type="n", main="Species
+     (Top hits)", scaling="species",
+     xlab = paste0("CA axis 1 (",axis1_top,"%)"), 
+     ylab = paste0("CA axis 2 (", axis2_top,"%)"))
+orditorp(ca1_plot, display = "species", scaling = 2,
+         col = "black", pch = 2, cex = 0.5, air = 0.25)
+```
+
+Species - labels are represented as triangles where text is too dense to be legible
+
+
+CA on plot-level data (*all hits*)
+
+```{r, include=F}
+# CA
+cafull_plot <- cca(fullcomm_plot)
+
+# variance explained by CA axes - dip after first 2, and axes 1 and 2 together explain a reasonable proportion of variance
+
+barplot(cafull_plot$CA$eig/cafull_plot$tot.chi, names.arg = 1:cafull_plot$CA$rank, cex.names = 0.5, ylab="Proportion of variance explained", xlab="CA axis", main="All hits")
+
+eigpropfull_plot <- cafull_plot$CA$eig/cafull_plot$CA$tot.chi
+
+# total variance explained by axes 1 and 2
+(all_2 <- round(sum(eigpropfull_plot[1:2])*100, 1))
+
+# save axis 1 and 2 info for plotting
+axis1_full <- round(eigpropfull_plot[1]*100,1)
+axis2_full <- round(eigpropfull_plot[2]*100,1)
+```
+
+```{r, echo=F}
+plot(cafull_plot, display="sites", type="n", main="Sites
+     (All hits)", scaling="sites",
+     xlab = paste0("CA axis 1 (",axis1_full,"%)"), 
+     ylab = paste0("CA axis 2 (", axis2_full,"%)"))
+text(cafull_plot, display="sites", col=site.cols, scaling="sites")
+
+# plot species
+plot(cafull_plot, display="species", type="n",  main="Species
+     (All hits)", scaling="species",
+     xlab = paste0("CA axis 1 (",axis1_top,"%)"), 
+     ylab = paste0("CA axis 2 (", axis2_top,"%)"))
+orditorp(cafull_plot, display = "species", 
+         scaling = 2, col = "black", pch = 2, 
+         cex = 0.5, air = 0.25)
+
+```
+
+
+The all hits ordination shows a similar general pattern to the top hits ordination, in that among-site variation dominates among-treatment variation in species composition. Different species (compared to the top hits approach) appear to be driving variation among sites.
+
+Which species are driving most of the variation in composition, and do they differ among survey methods?
+
+- Looking at species loadings onto CA axes (*top hits*):
+
+```{r, echo=F}
+top_loadings <- as.data.frame(scores(ca1_plot)$species)
+
+top_loadings <- top_loadings %>% 
+  mutate(species = rownames(top_loadings),
+         species = as.factor(species),
+         species = fct_reorder(species, CA1)) 
+
+top_loadings %>%
+  ggplot(aes(x = CA1, y=species))+
+  geom_segment(aes(x = 0, y = species, xend = CA1, yend = species), color = "grey50") +
+        geom_point()+
+  theme_classic()+
+  geom_vline(xintercept=0, lty=2, col="darkgrey")+
+  theme(axis.text.y = element_text(size=4))+
+  labs(x="CA axis 1 loadings", y="Species", title="Top hits")
+```
+
+Singling out the species that drive most of the variation (i.e., species that are in the upper quartile of absolute loading, focusing on axis 1 of *top hits*):
+
+```{r, echo=F}
+top_quant <- quantile(abs(top_loadings$CA1))
+top_sp <- which(top_loadings$CA1 >=  top_quant[4])
+top_loadings[top_sp,"species"]
+```
+
+```{r, echo=F}
+all_loadings <- as.data.frame(scores(cafull_plot)$species)
+
+all_loadings <- all_loadings %>% 
+  mutate(species = rownames(all_loadings),
+         species = as.factor(species),
+         species = fct_reorder(species, CA1)) 
+
+all_loadings %>%
+  ggplot(aes(x = CA1, y=species))+
+  geom_segment(aes(x = 0, y = species, xend = CA1, yend = species), color = "grey50") +
+        geom_point()+
+  theme_classic()+
+  geom_vline(xintercept=0, lty=2, col="darkgrey")+
+  theme(axis.text.y = element_text(size=4))+
+  labs(x="CA axis 1 loadings", y="Species", title="All hits")
+```
+
+Species that drive most of the variation (i.e., species that are in the upper quartile of absolute loading, focusing on axis 1 of *all hits*):
+
+```{r, echo=F}
+all_quant <- quantile(abs(all_loadings$CA1))
+all_sp <- which(all_loadings$CA1 >=  all_quant[4])
+all_loadings[all_sp,"species"]
+```
+
+Which species drive compositional variation along axis 2? Note, species are ordered by their axis 1 scores as above.
+
+```{r, echo=F}
+# plot axis 2 loadings
+top_loadings %>%
+  ggplot(aes(x = CA2, y=species))+
+  geom_segment(aes(x = 0, y = species, xend = CA2, yend = species), color = "grey50") +
+        geom_point()+
+  theme_classic()+
+  geom_vline(xintercept=0, lty=2, col="darkgrey")+
+  theme(axis.text.y = element_text(size=4))+
+  labs(x="CA axis 2 loadings", y="Species", title="Top hits")  
+  
+```
+
+
+```{r, echo=F}
+# Plot axis 2 loadings 
+all_loadings %>%
+  ggplot(aes(x = CA2, y=species))+
+  geom_segment(aes(x = 0, y = species, xend = CA2, yend = species), color = "grey50") +
+        geom_point()+
+  theme_classic()+
+  geom_vline(xintercept=0, lty=2, col="darkgrey")+
+  theme(axis.text.y = element_text(size=4))+
+  labs(x="CA axis 2 loadings", y="Species", title="All hits") 
+```
+
+The CA axes are not equivalent (in terms of species loadings) among different ordinations. This reveals which species drive compositional variation within each survey method, but for more direct comparisons of how site, treatment, and method influence community composition, I include both methods within a single ordination below.
+
+##### 2. Single Ordination Comparing Both Methods
+
+```{r, include=F}
+# make plot name all small letters for top hits, to differentiate without adding lots of text
+h1comm_plot_s <- h1comm_plot
+rownames(h1comm_plot_s) <- tolower(rownames(h1comm_plot_s))
+
+# making an ID column since rownames are not retained in a join (below)
+h1comm_plot_s$plot <- rownames(h1comm_plot_s)
+fullcomm_plot$plot <- rownames(fullcomm_plot)
+
+# join community dfs, keeping all columns of the all-hits df (so it adds missing sp to the top hits df)
+comm_combo <- dplyr::full_join(fullcomm_plot, h1comm_plot_s)
+
+# convert plot label back to rownames
+rownames(comm_combo) <- comm_combo$plot
+comm_combo <- comm_combo %>% select(-plot) #now remove plot col again
+
+# replace NAs with 0s
+comm_combo[is.na(comm_combo)] <- 0
+
+# CA for full df
+ca_combo <- cca(comm_combo)
+```
+
+```{r, include=F}
+# looking at variance explained by each CA axis. As before, there's some drop in variance explained after the first two CA axes, and first two together explain reasonable amount of variance
+
+par(mfrow=c(1,1))
+barplot(ca_combo$CA$eig/ca_combo$tot.chi, names.arg = 1:ca_combo$CA$rank, cex.names = 0.5, ylab="Proportion of variance explained", xlab="CA axis", main = "Both methods included")
+
+eigpropcombo <- ca_combo$CA$eig/ca_combo$CA$tot.chi
+
+# total variance explained by axes 1 and 2
+(combo_2 <- round(sum(eigpropcombo[1:2])*100, 1))
+
+# save axis 1 and 2 info for plotting
+axis1_combo <- round(eigpropcombo[1]*100,1)
+axis2_combo <- round(eigpropcombo[2]*100,1)
+```
+
+```{r, echo=F}
+# plot ordination
+par(mfrow=c(1,1))
+
+plot(ca_combo, display="sites", type="n", main="Sites
+     (Both methods)", scaling="sites")
+text(ca_combo, display="sites", col=site.cols, scaling="sites",
+     xlab = paste0("CA axis 1 (",axis1_combo,"%)"), 
+     ylab = paste0("CA axis 2 (", axis2_combo,"%)")) #virtually identical
+text(x=2.25, y=-1.25, cex=1, col="black",
+     labels="Darker color = Black sand
+     Lighter color = Control
+
+     CAPS = All hits
+     lowercase = Top hits only")
+
+plot(ca_combo, display="species", type="n", ylab="", main="Species
+     (Both methods)", scaling="species")
+orditorp(ca_combo, display = "species", scaling = 2,
+         col = "black", pch = 2, cex = 0.5, air = 0.25)
+
+```
+
+Landscape-scale (among-site) variation dwarfs method or treatment sources of variation in species composition.
+
+
+Comparing top hits and all hits using a shepard plot (how much of the community composition pattern of interest is preserved in the reduced sampling method?)
+
+```{r, echo=F}
+#head(h1comm) #each plot within site is its own row
+
+#create community matrix - borrowing from script 1
+## tally sp frequencies and create community df
+h1comm <- h1 %>% group_by(subplot) %>%
+  count(sp) %>%
+  ungroup() %>%
+  #spread into columns=sp
+  pivot_wider(names_from= sp, values_from = n) 
+
+## convert from tibble -> df, so can turn col 1 (subplot) into rownames
+h1comm <- as.data.frame(h1comm)
+rownames(h1comm) <- h1comm[,1] #make site labels into rownames
+h1comm <- h1comm %>% select(-subplot) #remove subplot column
+
+## replace NA with 0 for sp comp data
+h1comm[is.na(h1comm)] <- 0
+
+# repeat for full dataset (all hits)
+fullcomm <- splong %>% group_by(subplot) %>%
+  count(sp) %>%
+  ungroup() %>%
+  pivot_wider(names_from = sp, values_from = n) 
+
+fullcomm <- as.data.frame(fullcomm)
+rownames(fullcomm) <- fullcomm[,1] 
+fullcomm <- fullcomm %>% select(-subplot) 
+
+fullcomm[is.na(fullcomm)] <- 0
+
+#calculate Bray Curtis distance for top hits & all hits
+h1dist <- vegdist(h1comm, method = "bray")
+fulldist <- vegdist(fullcomm, method = "bray")
+
+#plot, with 1:1 reference line
+plot(fulldist[lower.tri(fulldist)], h1dist[lower.tri(h1dist)],
+     xlab = "All hits (Bray curtis distance)",
+     ylab = "Top hits (Bray curtis distance)")
+abline(a=0, b=1, lty=2, col = "darkred", lwd=2)
+```
+
+It seems like most of the pattern, in terms of overall dissimilarity among sites, is well preserved using the top hits approach.
+
+
+##### 3. Site-level Ordination Comparing Both Methods
+One CA per site, to focus on variation due to survey method and treatment:
+```{r, echo=F}
+comm_combo$plot <- rownames(comm_combo)
+
+# isolate each site's community matrix
+comm_a <- comm_combo %>% filter(grepl("A|a", plot))
+comm_e <- comm_combo %>% filter(grepl("E|e", plot))
+comm_l <- comm_combo %>% filter(grepl("L|l", plot))
+#s is present in 'bs' part of many plot labels - need more specificity
+comm_s <- comm_combo %>% filter(grepl("SCO|SBS|sco|sbs", plot))
+comm_t <- comm_combo %>% filter(grepl("T|t", plot))
+
+# make plot back into the rownames, and eliminate plot column
+rownames(comm_a) <- comm_a$plot
+rownames(comm_e) <- comm_e$plot
+rownames(comm_l) <- comm_l$plot
+rownames(comm_s) <- comm_s$plot
+rownames(comm_t) <- comm_t$plot
+
+comm_a <- comm_a %>% select(-plot)
+comm_e <- comm_e %>% select(-plot)
+comm_l <- comm_l %>% select(-plot)
+comm_s <- comm_s %>% select(-plot)
+comm_t <- comm_t %>% select(-plot)
+
+# remove species that don't appear within a given site
+comm_a <- comm_a[,which(colSums(comm_a)>0)]
+comm_e <- comm_e[,which(colSums(comm_e)>0)]
+comm_l <- comm_l[,which(colSums(comm_l)>0)]
+comm_s <- comm_s[,which(colSums(comm_s)>0)]
+comm_t <- comm_t[,which(colSums(comm_t)>0)]
+
+# ordinate each site separately
+ca_a <- cca(comm_a)
+ca_e <- cca(comm_e)
+ca_l <- cca(comm_l)
+ca_s <- cca(comm_s)
+ca_t <- cca(comm_t)
+
+# plot first 2 CA axes and save variance explained
+# scaling sites and species symmetrically
+
+# set site color scheme
+cols_a <- rep(site.cols[1:2],2)
+
+axis1 <- round(ca_a$CA$eig[1]/sum(ca_a$CA$eig)*100, 1)
+axis2 <- round(ca_a$CA$eig[2]/sum(ca_a$CA$eig)*100, 1)
+
+plot(ca_a, type = "n", main = "Site A
+     (Both methods)", scaling = "symmetric", xlab = paste("CA axis 1 (",axis1,"%)"), ylab = paste("CA axis 2 (", axis2,"%)")) 
+orditorp(ca_a, display = "species", scaling = 3,
+         col = "black", pch = 2, cex = 0.5, air = 0.25)
+text(ca_a, display="sites", col=cols_a, scaling=3)
+text(x=2.5, y=-2.25, cex=0.5, col="black",
+     labels="Darker color = Black sand
+     Lighter color = Control
+
+     CAPS = All hits
+     lowercase = Top hits only")
+```
+
+Site A: Control and black sand treatments split along axis 1, which explains nearly all the compositional variation here (vs. split among survey methods is along axis 2, which explains very little variation)
+
+```{r, echo=F}
+# plot CA for site e
+cols_e <- rep(site.cols[3:4],2)
+
+axis1 <- round(ca_e$CA$eig[1]/sum(ca_e$CA$eig)*100, 1)
+axis2 <- round(ca_e$CA$eig[2]/sum(ca_e$CA$eig)*100, 1)
+
+plot(ca_e, type = "n", main = "Site E
+     (Both methods)", scaling = "symmetric", 
+     xlab = paste0("CA axis 1 (",axis1,"%)"), 
+     ylab = paste0("CA axis 2 (", axis2,"%)")) 
+orditorp(ca_e, display = "species", scaling = 3,
+         col = "black", pch = 2, cex = 0.5, air = 0.25)
+text(ca_e, display="sites", col=cols_a, scaling=3)
+text(x=2.25, y=-2.25, cex=0.5, col="black",
+     labels="Darker color = Black sand
+     Lighter color = Control
+
+     CAPS = All hits
+     lowercase = Top hits only")
+```
+
+Site E: Similarly, the split among treatments is more important
+
+```{r, echo=F}
+cols_l <- rep(site.cols[5:6],2)
+
+axis1 <- round(ca_l$CA$eig[1]/sum(ca_l$CA$eig)*100, 1)
+axis2 <- round(ca_l$CA$eig[2]/sum(ca_l$CA$eig)*100, 1)
+
+plot(ca_l, type = "n", main = "Site L
+     (Both methods)", scaling = "symmetric", 
+     xlab = paste0("CA axis 1 (",axis1,"%)"), 
+     ylab = paste0("CA axis 2 (", axis2,"%)")) 
+orditorp(ca_l, display = "species", scaling = 3,
+         col = "black", pch = 2, cex = 0.5, air = 0.25)
+text(ca_l, display="sites", col=cols_a, scaling=3)
+text(x=2.25, y=-2.25, cex=0.5, col="black",
+     labels="Darker color = Black sand
+     Lighter color = Control
+
+     CAPS = All hits
+     lowercase = Top hits only")
+```
+
+Site L: Similarly, the split among treatments is more important
+
+```{r, echo=F}
+# site s
+cols_s <- rep(site.cols[7:8],2)
+
+axis1 <- round(ca_s$CA$eig[1]/sum(ca_s$CA$eig)*100, 1)
+axis2 <- round(ca_s$CA$eig[2]/sum(ca_s$CA$eig)*100, 1)
+
+plot(ca_s, type = "n", main = "Site S
+     (Both methods)", scaling = "symmetric", 
+     xlab = paste0("CA axis 1 (",axis1,"%)"), 
+     ylab = paste0("CA axis 2 (", axis2,"%)")) 
+orditorp(ca_s, display = "species", scaling = 3,
+         col = "black", pch = 2, cex = 0.5, air = 0.25)
+text(ca_s, display="sites", col=cols_a, scaling=3)
+text(x=2.25, y=-2.25, cex=0.5, col="black",
+     labels="Darker color = Black sand
+     Lighter color = Control
+
+     CAPS = All hits
+     lowercase = Top hits only")
+```
+
+Site S: Similarly, the split among treatments is more important (axis 1 explains more variation)
+
+```{r, echo=F}
+# site t
+cols_t <- rep(site.cols[9:10],2)
+
+axis1 <- round(ca_t$CA$eig[1]/sum(ca_t$CA$eig)*100, 1)
+axis2 <- round(ca_t$CA$eig[2]/sum(ca_t$CA$eig)*100, 1)
+
+plot(ca_t, type = "n", main = "Site T
+     (Both methods)", scaling = "symmetric", 
+     xlab = paste0("CA axis 1 (",axis1,"%)"), 
+     ylab = paste0("CA axis 2 (", axis2,"%)")) 
+orditorp(ca_t, display = "species", scaling = 3,
+         col = "black", pch = 2, cex = 0.5, air = 0.25)
+text(ca_t, display="sites", col=cols_a, scaling=3)
+text(x=2, y=-1.25, cex=0.5, col="black",
+     labels="Darker color = Black sand
+     Lighter color = Control
+
+     CAPS = All hits
+     lowercase = Top hits only")
+```
+
+Site T: Similarly, the split among treatments is more important (axis 1 explains more variation). Here, the difference in survey methods was more pronounced in the control treatment.
+
+
+Ordination reference:
+http://cc.oulu.fi/~jarioksa/opetus/metodi/notes.pdf
